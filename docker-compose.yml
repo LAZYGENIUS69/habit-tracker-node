@@ -1,0 +1,80 @@
+services:
+  db:
+    # Pinned exact minor release: prevents unexpected database format changes on upgrade
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-habits}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-habits}
+      POSTGRES_DB: ${POSTGRES_DB:-habits}
+    volumes:
+      # Named volume ensures database mutations survive container lifecycle
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 forces a TCP check; official postgres init script runs a temporary server on unix socket only, which reports ready prematurely before the real TCP daemon listens
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER:-habits} -d $${POSTGRES_DB:-habits}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # Unexposed ports prevent database exposure to host network; accessible only via Compose DNS
+    restart: unless-stopped
+
+  cache:
+    # Pinned exact minor release: eliminates silent Redis configuration changes
+    image: redis:7.4.11-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    # Unexposed ports keep cache internal to container network
+    restart: unless-stopped
+
+  migrate:
+    # Shares identical image tag and build definition with app to guarantee environment parity and single build artifact
+    image: habit-tracker:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["npm", "run", "migrate"]
+    environment:
+      # Single source of truth: derives connection string from POSTGRES credentials so credential changes cannot desync
+      DATABASE_URL: postgresql://${POSTGRES_USER:-habits}:${POSTGRES_PASSWORD:-habits}@db:5432/${POSTGRES_DB:-habits}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Ephemeral one-shot job: exits 0 on success, non-zero on failure without looping
+    restart: "no"
+
+  app:
+    # Shares the same image as migrate; built once from Dockerfile
+    image: habit-tracker:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      PORT: ${PORT:-8080}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-habits}:${POSTGRES_PASSWORD:-habits}@db:5432/${POSTGRES_DB:-habits}
+      REDIS_URL: ${REDIS_URL:-redis://cache:6379}
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      # Symmetric port mapping: ensures host port matches internal PORT when overridden
+      - "${PORT:-8080}:${PORT:-8080}"
+    healthcheck:
+      # Queries 127.0.0.1 and dynamic PORT so health check matches listening container configuration without external curl
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 8080) + '/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
