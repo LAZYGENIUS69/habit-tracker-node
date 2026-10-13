@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+.env.*
+!.env.example
+coverage
+npm-debug.log*
+.circleci
+Dockerfile*
+docker-compose*.yml
+*.md
+.gitattributes
