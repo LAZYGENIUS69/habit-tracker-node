@@ -1,0 +1,217 @@
+version: 2.1
+
+# Reusable Executors pinned to exact immutable versions (no floating tags, no latest, no current)
+executors:
+  node:
+    # Primary Node.js runtime matching production base image (Node 20.20.2 on Debian/Ubuntu)
+    docker:
+      - image: cimg/node:20.20.2
+  base:
+    # CircleCI base Linux image containing bash, curl, git, and Docker client CLI
+    docker:
+      - image: cimg/base:2024.12
+
+# Reusable Commands
+commands:
+  npm_ci:
+    description: "Install dependencies deterministically from lockfile leveraging ~/.npm cache"
+    steps:
+      - restore_cache:
+          name: Restore npm cache
+          keys:
+            - npm-cache-v1-{{ checksum "package-lock.json" }}
+            - npm-cache-v1-
+      - run:
+          name: Install dependencies strictly from package-lock.json
+          command: npm ci
+      - save_cache:
+          name: Save npm cache
+          key: npm-cache-v1-{{ checksum "package-lock.json" }}
+          paths:
+            # Cache global tarballs only; never cache node_modules directly to prevent architecture desync
+            - ~/.npm
+
+jobs:
+  lint:
+    executor: node
+    steps:
+      - checkout
+      - npm_ci
+      - run:
+          name: Run ESLint static analysis
+          command: npm run lint
+
+  unit:
+    executor: node
+    steps:
+      - checkout
+      - npm_ci
+      - run:
+          name: Run unit tests with c8 70% coverage gate
+          command: npm test
+      - run:
+          name: Generate JUnit test report for CI visibility
+          command: npm run test:ci
+      - store_test_results:
+          path: test-results
+      - store_artifacts:
+          path: coverage
+
+  integration:
+    docker:
+      # Primary container executes test scripts and server process
+      - image: cimg/node:20.20.2
+      # Service containers share network namespace with primary container (reachable on 127.0.0.1)
+      - image: postgres:16.15-alpine
+        environment:
+          POSTGRES_USER: habits
+          POSTGRES_PASSWORD: habits
+          POSTGRES_DB: habits
+      - image: redis:7.4.11-alpine
+    environment:
+      # Ephemeral integration credentials: exist solely for throwaway CI service containers
+      POSTGRES_USER: habits
+      POSTGRES_PASSWORD: habits
+      POSTGRES_DB: habits
+      DATABASE_URL: postgresql://habits:habits@127.0.0.1:5432/habits
+      REDIS_URL: redis://127.0.0.1:6379
+      PORT: "8080"
+      APP_URL: http://127.0.0.1:8080
+      NODE_ENV: test
+    steps:
+      - checkout
+      - npm_ci
+      - run:
+          name: Wait for PostgreSQL and Redis TCP ports
+          command: |
+            echo "Waiting for PostgreSQL (5432) and Redis (6379) to listen on 127.0.0.1..."
+            for i in $(seq 1 60); do
+              if (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1 && (echo > /dev/tcp/127.0.0.1/6379) >/dev/null 2>&1; then
+                echo "Services are listening on 127.0.0.1 after ${i}s"
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "Timeout (60s) reached waiting for PostgreSQL (5432) and Redis (6379) on 127.0.0.1" >&2
+            exit 1
+      - run:
+          name: Apply database migrations (Run 1)
+          command: npm run migrate
+      - run:
+          name: "Verify migration idempotency (Run 2: must skip cleanly)"
+          command: npm run migrate
+      - run:
+          name: Start application server in background
+          command: |
+            node src/server.js > app.log 2>&1 &
+            echo "Application server process started in background (logging to app.log)"
+      - run:
+          name: Wait for application HTTP health endpoint
+          command: |
+            echo "Probing http://127.0.0.1:8080/health..."
+            for i in $(seq 1 30); do
+              if curl -s -f http://127.0.0.1:8080/health >/dev/null 2>&1; then
+                echo "Application responded healthy after ${i}s:"
+                curl -s http://127.0.0.1:8080/health
+                echo ""
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "Timeout waiting for application /health endpoint" >&2
+            if [ -f app.log ]; then
+              echo "=== Application Log Dump ==="
+              cat app.log
+            fi
+            exit 1
+      - run:
+          name: Run integration test suite with dual spec and JUnit reporting
+          command: |
+            mkdir -p test-results
+            node --test \
+              --test-reporter=spec \
+              --test-reporter-destination=stdout \
+              --test-reporter=junit \
+              --test-reporter-destination=test-results/integration.xml \
+              tests/integration/habits.test.js
+      - store_test_results:
+          path: test-results
+      - run:
+          name: Dump application logs on failure
+          command: |
+            if [ -f app.log ]; then
+              echo "=== Application Log Diagnostic (Failure) ==="
+              cat app.log
+            fi
+          when: on_fail
+
+  secret_scan:
+    executor: base
+    steps:
+      - checkout
+      - run:
+          name: Install pinned Gitleaks binary with checksum verification
+          command: |
+            GITLEAKS_VER="8.30.1"
+            GITLEAKS_SHA="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+            TAR_FILE="gitleaks_${GITLEAKS_VER}_linux_x64.tar.gz"
+            URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VER}/${TAR_FILE}"
+
+            echo "Downloading Gitleaks v${GITLEAKS_VER}..."
+            curl -sSL -o "/tmp/${TAR_FILE}" "$URL"
+            echo "${GITLEAKS_SHA}  /tmp/${TAR_FILE}" | sha256sum -c -
+
+            # Binary installation directly into primary container avoids remote docker volume limitations
+            sudo tar -xzf "/tmp/${TAR_FILE}" -C /usr/local/bin gitleaks
+            rm -f "/tmp/${TAR_FILE}"
+            gitleaks version
+      - run:
+          name: Inspect repository depth and scan history
+          command: |
+            echo "Checking shallow status:"
+            git rev-parse --is-shallow-repository
+            echo "Scanning repository with Gitleaks..."
+            gitleaks detect --config=.gitleaks.toml --verbose --redact
+
+  image:
+    executor: base
+    steps:
+      - checkout
+      # Pin remote docker environment to Docker 24 engine release
+      - setup_remote_docker:
+          version: docker24
+      - run:
+          name: Build, smoke test, and conditionally publish container image
+          command: bash scripts/ci-image.sh
+
+workflows:
+  pipeline:
+    jobs:
+      - lint:
+          filters:
+            tags:
+              only: /^v.*/
+      - unit:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v.*/
+      - integration:
+          requires:
+            - unit
+          filters:
+            tags:
+              only: /^v.*/
+      - secret_scan:
+          requires:
+            - integration
+          filters:
+            tags:
+              only: /^v.*/
+      - image:
+          requires:
+            - secret_scan
+          filters:
+            tags:
+              only: /^v.*/

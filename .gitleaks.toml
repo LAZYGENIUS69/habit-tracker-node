@@ -1,0 +1,4 @@
+title = "habit-tracker gitleaks config"
+
+[extend]
+useDefault = true
