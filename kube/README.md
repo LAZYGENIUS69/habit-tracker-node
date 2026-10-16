@@ -178,6 +178,11 @@ kubectl exec pod-test -- curl -s http://habit-tracker:8080/health
 kubectl exec pod-test -- curl -s http://habit-tracker:8080/habits
 ```
 
+> **Verification Note:** Successful responses from `/health` and `/habits` confirm:
+> - The test pod resolves the `habit-tracker` Kubernetes Service through cluster DNS.
+> - The Service routes traffic to the application Pods.
+> - The application can reach PostgreSQL and Redis.
+
 ---
 
 ## 8. Demonstrations
