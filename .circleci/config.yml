@@ -82,18 +82,58 @@ jobs:
       - checkout
       - npm_ci
       - run:
-          name: Wait for PostgreSQL and Redis TCP ports
+          name: Wait for PostgreSQL and Redis to be queryable
           command: |
-            echo "Waiting for PostgreSQL (5432) and Redis (6379) to listen on 127.0.0.1..."
-            for i in $(seq 1 60); do
-              if (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1 && (echo > /dev/tcp/127.0.0.1/6379) >/dev/null 2>&1; then
-                echo "Services are listening on 127.0.0.1 after ${i}s"
-                exit 0
-              fi
-              sleep 1
-            done
-            echo "Timeout (60s) reached waiting for PostgreSQL (5432) and Redis (6379) on 127.0.0.1" >&2
-            exit 1
+            node - <<'NODE'
+            const { Client } = require('pg');
+            const { createClient } = require('redis');
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const timeoutMs = 60_000;
+            const start = Date.now();
+
+            async function postgresReady() {
+              const client = new Client({ connectionString: process.env.DATABASE_URL });
+              try {
+                await client.connect();
+                await client.query('SELECT 1');
+                return true;
+              } catch {
+                return false;
+              } finally {
+                await client.end().catch(() => {});
+              }
+            }
+
+            async function redisReady() {
+              const client = createClient({ url: process.env.REDIS_URL });
+              client.on('error', () => {});
+              try {
+                await client.connect();
+                await client.ping();
+                return true;
+              } catch {
+                return false;
+              } finally {
+                if (client.isOpen) {
+                  await client.quit().catch(() => {});
+                }
+              }
+            }
+
+            (async () => {
+              while (Date.now() - start < timeoutMs) {
+                const [pg, redis] = await Promise.all([postgresReady(), redisReady()]);
+                if (pg && redis) {
+                  console.log(`Postgres and Redis are queryable after ${Math.floor((Date.now() - start) / 1000)}s`);
+                  process.exit(0);
+                }
+                await sleep(1000);
+              }
+
+              console.error('Timeout waiting for Postgres and Redis to become queryable');
+              process.exit(1);
+            })();
+            NODE
       - run:
           name: Apply database migrations (Run 1)
           command: npm run migrate
