@@ -112,8 +112,24 @@ There is no test runner wired up yet. Add one (Jest or node:test), and remember 
 
 Timezones. 'Today' for a user in Bangalore is not today in UTC, and a streak must not break because the server rolled over first. Decide where 'today' is defined and defend it.
 
-Write your answer to this in your README. It is worth more marks than the
-feature itself.
+### Timezone Decision & Audit
+
+The unit test suite passes all 27 tests identically across `TZ=UTC`, `TZ=Asia/Kolkata`, and `TZ=Pacific/Kiritimati`.
+
+This happens because `src/streaks.js` is a pure calculation layer: functions receive explicit calendar dates as arguments rather than inspecting the system clock. The streak calculation itself is fully deterministic.
+
+However, passing unit tests does not mean the application is timezone-safe.
+
+The actual timezone boundary is in `src/server.js`:
+```javascript
+const today = () => toKey(new Date());
+```
+
+`new Date()` captures a physical instant, but `toKey()` converts it to calendar fields using UTC. Around midnight, the UTC date and the user's local calendar date diverge. For example, at 02:00 IST in Bangalore (`UTC+05:30`), it is still 20:30 of the previous day in UTC. A habit completed at that moment is attributed to yesterday rather than today.
+
+**Conclusion:** The streak calculation is deterministic; deriving "today" at the HTTP layer is the timezone-sensitive boundary.
+
+Fixing this requires changing how the server determines the client's current calendar day (e.g. accepting a timezone header or explicit date). We deliberately defer that change to the dedicated timezone package to avoid altering application behavior during the testing package.
 
 ---
 
@@ -126,3 +142,10 @@ feature itself.
 | `relation "..." does not exist` | Migrations did not run, or the app started before they finished. |
 | Build takes minutes every time | `COPY . .` is above your dependency install. |
 | CI cannot reach the database | In CircleCI service containers the host **is** `localhost` — the opposite of compose. |
+
+---
+
+## Kubernetes Deployment (Minikube)
+
+For running Habit Tracker on a local Kubernetes cluster with declarative Deployments, persistent storage (PVC), one-shot migration Jobs, and health probes, see the [Kubernetes Deployment Guide](kube/README.md).
+
