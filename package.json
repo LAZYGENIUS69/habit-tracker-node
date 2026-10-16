@@ -8,7 +8,8 @@
     "migrate": "node src/migrate.js",
     "lint": "eslint .",
     "test": "c8 --include=src/streaks.js --check-coverage --lines 70 --branches 70 --functions 70 node --test tests/unit/streaks.test.js",
-    "test:ci": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && node --test --test-reporter=junit --test-reporter-destination=test-results/results.xml tests/unit/streaks.test.js"
+    "test:ci": "node -e \"require('fs').mkdirSync('test-results', { recursive: true })\" && node --test --test-reporter=junit --test-reporter-destination=test-results/results.xml tests/unit/streaks.test.js",
+    "test:integration": "node --test tests/integration/habits.test.js"
   },
   "dependencies": {
     "express": "4.19.2",

@@ -76,5 +76,24 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  test-integration:
+    # Dedicated integration test runner: exercises HTTP endpoints and validates PostgreSQL and Redis persistence/cache
+    image: habit-tracker:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["npm", "run", "test:integration"]
+    environment:
+      PORT: ${PORT:-8080}
+      APP_URL: http://app:${PORT:-8080}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-habits}:${POSTGRES_PASSWORD:-habits}@db:5432/${POSTGRES_DB:-habits}
+      REDIS_URL: ${REDIS_URL:-redis://cache:6379}
+    depends_on:
+      app:
+        condition: service_healthy
+    profiles:
+      - test
+    restart: "no"
+
 volumes:
   pgdata:
