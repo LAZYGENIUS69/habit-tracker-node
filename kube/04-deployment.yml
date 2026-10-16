@@ -1,0 +1,91 @@
+# Application Deployment for Habit Tracker.
+# Two replicas to demonstrate high availability, load balancing, and self-healing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: habit-tracker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: habit-tracker
+  template:
+    metadata:
+      labels:
+        app: habit-tracker
+    spec:
+      containers:
+        - name: app
+          image: habit-tracker:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: PORT
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_DB
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: DB_PORT
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: habit-tracker-secret
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: REDIS_URL
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: NODE_ENV
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          readinessProbe:
+            # Dependency-sensitive health check (/health):
+            # Verifies PostgreSQL and Redis are both reachable before admitting Pod into Service endpoints.
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            # Independent process health check (/):
+            # Pure HTTP listener check without downstream DB/Redis queries.
+            # Avoids kill-loops if PostgreSQL or Redis experiences brief transient connectivity hiccups.
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3

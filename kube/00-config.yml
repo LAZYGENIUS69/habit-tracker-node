@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: habit-tracker-config
+data:
+  # Application port configuration
+  PORT: "8080"
+  NODE_ENV: "production"
+
+  # Database connectivity parameters (non-sensitive)
+  # Notice: passwords must NEVER be placed in a ConfigMap; they belong in a Kubernetes Secret
+  DB_HOST: "db"
+  DB_PORT: "5432"
+  POSTGRES_USER: "habits"
+  POSTGRES_DB: "habits"
+
+  # Cache service URL
+  REDIS_URL: "redis://cache:6379"

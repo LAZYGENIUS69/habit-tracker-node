@@ -1,0 +1,80 @@
+# One-shot database migration Job.
+# Runs npm run migrate using the same immutable application image.
+# An initContainer blocks until PostgreSQL on Service db:5432 is ready to accept connections.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: habit-tracker-migrate
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: habit-tracker-migrate
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-db
+          image: postgres:16.15-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL service at db:5432..."
+              until pg_isready -h db -p 5432 -U $POSTGRES_USER -d $POSTGRES_DB; do
+                sleep 2
+              done
+              echo "PostgreSQL is reachable and accepting connections."
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_DB
+      containers:
+        - name: migrate
+          image: habit-tracker:local
+          imagePullPolicy: IfNotPresent
+          command: ["npm", "run", "migrate"]
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: POSTGRES_DB
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: habit-tracker-config
+                  key: DB_PORT
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: habit-tracker-secret
+                  key: POSTGRES_PASSWORD
+            # Dynamically compose DATABASE_URL combining ConfigMap parameters with Secret credentials
+            - name: DATABASE_URL
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi

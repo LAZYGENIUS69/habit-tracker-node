@@ -1,0 +1,67 @@
+# Bare Pod demonstration for contrast against Deployment self-healing.
+# A bare Pod is NOT monitored by any controller. When deleted, nothing brings it back.
+# The label is deliberately "app: habit-tracker-bare" so the Service in 05-service.yml
+# does not route production traffic to this unmanaged Pod.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: habit-tracker-bare
+  labels:
+    app: habit-tracker-bare
+spec:
+  containers:
+    - name: app
+      image: habit-tracker:local
+      imagePullPolicy: IfNotPresent
+      ports:
+        - containerPort: 8080
+      env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: PORT
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: POSTGRES_USER
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: POSTGRES_DB
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: DB_HOST
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: DB_PORT
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: habit-tracker-secret
+              key: POSTGRES_PASSWORD
+        - name: DATABASE_URL
+          value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)"
+        - name: REDIS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: REDIS_URL
+        - name: NODE_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: habit-tracker-config
+              key: NODE_ENV
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi

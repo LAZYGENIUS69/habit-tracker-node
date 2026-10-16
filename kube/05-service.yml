@@ -1,0 +1,13 @@
+# Internal ClusterIP Service for Habit Tracker application.
+# Provides a single, stable IP address and DNS name across the running replicas.
+apiVersion: v1
+kind: Service
+metadata:
+  name: habit-tracker
+spec:
+  type: ClusterIP
+  selector:
+    app: habit-tracker
+  ports:
+    - port: 8080
+      targetPort: 8080

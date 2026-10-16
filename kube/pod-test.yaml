@@ -1,0 +1,18 @@
+# In-cluster connectivity test Pod.
+# An ephemeral container equipped with curl to verify internal DNS resolution,
+# ClusterIP Service routing, and downstream database/cache access from inside the cluster network.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-test
+  labels:
+    app: pod-test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: curlimages/curl:8.10.1
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args:
+        - sleep 3600
