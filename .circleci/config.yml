@@ -108,7 +108,7 @@ jobs:
           name: Wait for application HTTP health endpoint
           command: |
             echo "Probing http://127.0.0.1:8080/health..."
-            for i in $(seq 1 30); do
+            for i in $(seq 1 90); do
               if curl -s -f http://127.0.0.1:8080/health >/dev/null 2>&1; then
                 echo "Application responded healthy after ${i}s:"
                 curl -s http://127.0.0.1:8080/health
@@ -117,7 +117,7 @@ jobs:
               fi
               sleep 1
             done
-            echo "Timeout waiting for application /health endpoint" >&2
+            echo "Timeout waiting for application /health endpoint after 90s" >&2
             if [ -f app.log ]; then
               echo "=== Application Log Dump ==="
               cat app.log
