@@ -102,9 +102,8 @@ jobs:
           command: npm run migrate
       - run:
           name: Start application server in background
-          command: |
-            node src/server.js > app.log 2>&1 &
-            echo "Application server process started in background (logging to app.log)"
+          command: node src/server.js > app.log 2>&1
+          background: true
       - run:
           name: Wait for application HTTP health endpoint
           command: |
