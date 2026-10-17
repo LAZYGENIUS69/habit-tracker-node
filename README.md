@@ -150,3 +150,14 @@ Docker Compose and Kubernetes deployment verified locally.
 
 For running Habit Tracker on a local Kubernetes cluster with declarative Deployments, persistent storage (PVC), one-shot migration Jobs, and health probes, see the [Kubernetes Deployment Guide](kube/README.md).
 
+---
+
+## DevOps Promotion Workflow
+
+This repository enforces an automated environment promotion model:
+
+- `feat/devops-pipeline`: Feature and pipeline development branch.
+- `main` (`qa`): Quality assurance branch integrating all verified work through pull requests.
+- `staging` (`stage`): Pre-production release validation branch.
+- `prod` (`prod`): Production release branch protected by branch deletion, force-push, and pull request rulesets.
+
