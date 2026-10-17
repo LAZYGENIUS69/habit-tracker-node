@@ -144,7 +144,8 @@ Fixing this requires changing how the server determines the client's current cal
 | CI cannot reach the database | In CircleCI service containers the host **is** `localhost` — the opposite of compose. |
 
 ---
-
+## Demo
+Docker Compose and Kubernetes deployment verified locally.
 ## Kubernetes Deployment (Minikube)
 
 For running Habit Tracker on a local Kubernetes cluster with declarative Deployments, persistent storage (PVC), one-shot migration Jobs, and health probes, see the [Kubernetes Deployment Guide](kube/README.md).
